@@ -1,0 +1,27 @@
+#!/bin/bash
+# pre-commit secret guard (2026-10-17). Blocks a commit whose ADDED lines look like a
+# secret value. Enabled per clone with: git config core.hooksPath .githooks
+# Secrets live in Bitwarden or a root-only file on the host; repos record type + location only.
+# False positive? Reword the line (name the location, not the value). Last resort: --no-verify.
+LOG="$HOME/.claude/memory-sync.log"
+added=$(git diff --cached -U0 --no-color | grep -E '^\+[^+]' | cut -c2-)
+[ -n "$added" ] || exit 0
+
+# 1) secret-word followed by a value that contains a digit (catches secrets written in prose, which gitleaks misses)
+hits=$(printf '%s\n' "$added" | grep -inE '(password|passwd|passphrase|psk|secret|token|api[ _-]?key|creds?)[`*")]*( is|:|=| ->|→) *[`"'"'"']?[A-Za-z0-9!@#%^&*._+-]*[0-9][A-Za-z0-9!@#%^&*._+-]*' \
+  | grep -viE 'redact|\[.*\]|<[a-z_-]+>|\$\{?[A-Z_]+|example|placeholder|20[0-9]{2}-[0-9]{2}|\.(sh|txt|md|json|conf|ya?ml|py|env)\b')
+# 2) well-known token formats
+hits+=$'\n'$(printf '%s\n' "$added" | grep -nE 'gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|sk-ant-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|discord(app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]{20,}|tskey-[a-z]+-[A-Za-z0-9]{10,}|1//0[A-Za-z0-9_-]{20,}|ya29\.[A-Za-z0-9_-]{20,}')
+# 3) gitleaks, where installed
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --pre-commit --staged --redact --no-banner -l warn >/dev/null 2>&1 || hits+=$'\n'"gitleaks: finding in staged changes (run: gitleaks git --pre-commit --staged -v)"
+fi
+
+hits=$(printf '%s\n' "$hits" | sed '/^$/d')
+[ -z "$hits" ] && exit 0
+{
+  echo "pre-commit: BLOCKED in $(pwd), possible secret in staged lines:"
+  # mask the value so the log never holds the secret
+  printf '%s\n' "$hits" | sed -E 's/((password|passwd|passphrase|psk|secret|token|api[ _-]?key|creds?)[`*")]*( is|:|=| ->|→) *)[^ ]+/\1***/Ig; s/(gh[pousr]_|github_pat_|sk-ant-|AKIA|xox[baprs]-|tskey-|ya29\.|1\/\/0|webhooks\/)[^ ]*/\1***/g' | cut -c1-120 | sed 's/^/  /'
+} | tee -a "$LOG" >&2
+exit 1
