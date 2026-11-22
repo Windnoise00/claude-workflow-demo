@@ -1,6 +1,6 @@
 # Claude Code workflow demo
 
-A **fake, cut-down copy** of how I run Claude Code as an IT assistant. All hosts, IPs, names and services
+A **fake, cut-down copy** of how I run Claude Code. All hosts, IPs, names and services
 here are invented (IPs come from the 192.0.2.0/24 documentation range). The structure and the rules are real.
 
 ## The idea in one paragraph
